@@ -1,0 +1,387 @@
+import React, { useState } from 'react';
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { 
+  Info, CheckCircle, XCircle, RefreshCw, AlertTriangle, 
+  BookOpen, Wand2, Shield, MessageSquare 
+} from 'lucide-react';
+
+const PromptEngineeringAssistant = () => {
+  const [prompt, setPrompt] = useState('');
+  const [feedback, setFeedback] = useState([]);
+  const [score, setScore] = useState({ total: 0, breakdown: {} });
+  const [revisedPrompt, setRevisedPrompt] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('general');
+
+  const examplePrompts = {
+    general: "Analyze the following text and provide a detailed breakdown of its key themes, supporting evidence, and rhetorical devices. Format the analysis using clear headers and bullet points.",
+    technical: "Write a Python function that implements a binary search algorithm. Include comprehensive documentation, type hints, and unit tests. Explain your implementation choices step by step.",
+    creative: "Create a short story about an AI researcher who discovers an unusual pattern in their training data. Focus on building suspense and use vivid sensory details. Include dialogue and internal monologue.",
+    academic: "Compare and contrast the major economic theories of Keynes and Hayek, focusing on their views about market efficiency and government intervention. Provide specific examples and historical context."
+  };
+
+  const promptPatterns = {
+    clarity: [
+      {
+        pattern: /^(what|how|why|when|where|who|explain|describe|analyze)/i,
+        feedback: 'Clear instruction verb at start',
+        points: 2
+      },
+      {
+        pattern: /\b(format|structure|style|output|provide)\b.*(:|\bas\b|\bin\b)/i,
+        feedback: 'Output format clearly specified',
+        points: 2
+      },
+      {
+        pattern: /\b(specific|exactly|precisely)\b/i,
+        feedback: 'Uses specific qualifiers',
+        points: 1
+      }
+    ],
+    detail: [
+      {
+        pattern: /\d+|several|multiple/i,
+        feedback: 'Includes specific quantities',
+        points: 1
+      },
+      {
+        pattern: /\b(example|instance|sample|such as)\b/i,
+        feedback: 'Includes examples or references',
+        points: 2
+      },
+      {
+        pattern: /"[^"]*"|'[^']*'/,
+        feedback: 'Uses quotations for exact phrases',
+        points: 1
+      }
+    ],
+    methodology: [
+      {
+        pattern: /\b(step by step|systematic|breakdown|sequence|process)\b/i,
+        feedback: 'Requests systematic approach',
+        points: 2
+      },
+      {
+        pattern: /\b(explain|justify|reason|because|therefore)\b/i,
+        feedback: 'Asks for reasoning/justification',
+        points: 2
+      },
+      {
+        pattern: /\b(compare|contrast|analyze|evaluate|assess)\b/i,
+        feedback: 'Requests analytical thinking',
+        points: 2
+      }
+    ],
+    constraints: [
+      {
+        pattern: /\b(limit|maximum|minimum|between|range)\b.*\d+/i,
+        feedback: 'Clear numerical constraints',
+        points: 1
+      },
+      {
+        pattern: /\b(must|should|require|necessary|essential)\b/i,
+        feedback: 'Clear requirements specified',
+        points: 1
+      },
+      {
+        pattern: /\b(avoid|exclude|don't|do not|except)\b/i,
+        feedback: 'Clear exclusions/limitations',
+        points: 1
+      }
+    ],
+    antiPatterns: [
+      {
+        pattern: /.{800,}/,
+        feedback: 'Prompt too long - break into smaller parts',
+        points: -2
+      },
+      {
+        pattern: /\b(please|could you|would you|if you can)\b/i,
+        feedback: 'Unnecessary politeness reduces clarity',
+        points: -1
+      },
+      {
+        pattern: /\?{2,}|\!{2,}|\.{2,}/,
+        feedback: 'Excessive punctuation',
+        points: -1
+      },
+      {
+        pattern: /\b(good|best|perfect|excellent)\b/i,
+        feedback: 'Subjective qualifiers - be specific instead',
+        points: -1
+      }
+    ]
+  };
+
+  const sensitiveTopics = [
+    /\b(hack|exploit|vulnerability|bypass|crack)\b/i,
+    /\b(illegal|unlawful|criminal)\b/i,
+    /\b(weapon|explosive|bomb|kill)\b/i,
+    /\b(suicide|self-harm|abuse)\b/i,
+    /\b(discrimination|racist|sexist)\b/i
+  ];
+
+  const improvePrompt = (originalPrompt) => {
+    let improved = originalPrompt;
+
+    // Remove unnecessary politeness
+    improved = improved.replace(/\b(please|kindly|if you could|would you)\b/gi, '');
+
+    // Add structure markers if missing
+    if (!improved.match(/\b(format|structure|style)\b/i)) {
+      improved += '\n\nFormat the response using clear headers and bullet points where appropriate.';
+    }
+
+    // Add reasoning request if missing
+    if (!improved.match(/\b(explain|reason|justify)\b/i)) {
+      improved += '\n\nExplain your reasoning for each major point.';
+    }
+
+    // Add specificity if missing
+    if (!improved.match(/\b(specific|exactly|precisely)\b/i)) {
+      improved = 'Provide specific and detailed ' + improved;
+    }
+
+    return improved.trim();
+  };
+
+  const checkSensitiveContent = (text) => {
+    return sensitiveTopics.some(pattern => pattern.test(text));
+  };
+
+  const analyzePrompt = () => {
+    const newFeedback = [];
+    const scoreBreakdown = {
+      clarity: 0,
+      detail: 0,
+      methodology: 0,
+      constraints: 0,
+      antiPatterns: 0
+    };
+
+    // Check for sensitive content
+    if (checkSensitiveContent(prompt)) {
+      newFeedback.push({
+        category: 'warning',
+        message: 'Prompt contains potentially sensitive topics - consider rephrasing',
+        positive: false
+      });
+    }
+
+    // Analyze patterns by category
+    Object.entries(promptPatterns).forEach(([category, patterns]) => {
+      patterns.forEach(({ pattern, feedback, points }) => {
+        if (pattern.test(prompt)) {
+          newFeedback.push({
+            category,
+            message: feedback,
+            positive: points > 0
+          });
+          scoreBreakdown[category] += points;
+        }
+      });
+    });
+
+    // Calculate total score
+    const totalScore = Object.values(scoreBreakdown).reduce((a, b) => a + b, 0);
+    
+    setFeedback(newFeedback);
+    setScore({ 
+      total: Math.max(0, totalScore),
+      breakdown: scoreBreakdown
+    });
+    setRevisedPrompt(improvePrompt(prompt));
+  };
+
+  const clearPrompt = () => {
+    setPrompt('');
+    setFeedback([]);
+    setScore({ total: 0, breakdown: {} });
+    setRevisedPrompt('');
+  };
+
+  const loadExample = () => {
+    setPrompt(examplePrompts[selectedCategory]);
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto p-4 space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span>Advanced Prompt Engineering Assistant</span>
+            <div className="flex gap-2">
+              <Badge variant="outline">
+                Score: {score.total}
+              </Badge>
+              {Object.entries(score.breakdown).map(([category, points]) => (
+                points !== 0 && (
+                  <Badge 
+                    key={category}
+                    variant={points > 0 ? "success" : "destructive"}
+                  >
+                    {category}: {points}
+                  </Badge>
+                )
+              ))}
+            </div>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue="editor" className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="editor" className="flex items-center gap-2">
+                <MessageSquare className="w-4 h-4" />
+                Editor
+              </TabsTrigger>
+              <TabsTrigger value="examples" className="flex items-center gap-2">
+                <BookOpen className="w-4 h-4" />
+                Examples
+              </TabsTrigger>
+              <TabsTrigger value="rules" className="flex items-center gap-2">
+                <Shield className="w-4 h-4" />
+                Guidelines
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="editor" className="space-y-4">
+              <Textarea
+                placeholder="Enter your prompt here..."
+                className="min-h-32 mb-4"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <Button 
+                  onClick={analyzePrompt}
+                  className="flex items-center gap-2"
+                >
+                  <Info className="w-4 h-4" />
+                  Analyze Prompt
+                </Button>
+                <Button 
+                  variant="outline"
+                  onClick={clearPrompt}
+                  className="flex items-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Clear
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={loadExample}
+                  className="flex items-center gap-2"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  Load Example
+                </Button>
+              </div>
+
+              {feedback.length > 0 && (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <h3 className="font-medium">Feedback & Suggestions:</h3>
+                    {feedback.map((item, index) => (
+                      <Alert 
+                        key={index}
+                        variant={item.category === 'warning' ? 'destructive' : 'default'}
+                      >
+                        <div className="flex items-center gap-2">
+                          {item.category === 'warning' ? (
+                            <AlertTriangle className="w-4 h-4 text-red-500" />
+                          ) : item.positive ? (
+                            <CheckCircle className="w-4 h-4 text-green-500" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-red-500" />
+                          )}
+                          <AlertDescription>
+                            {item.message}
+                          </AlertDescription>
+                        </div>
+                      </Alert>
+                    ))}
+                  </div>
+
+                  {revisedPrompt && (
+                    <div className="space-y-2">
+                      <h3 className="font-medium flex items-center gap-2">
+                        <Wand2 className="w-4 h-4" />
+                        Improved Version:
+                      </h3>
+                      <Alert>
+                        <AlertDescription className="whitespace-pre-wrap">
+                          {revisedPrompt}
+                        </AlertDescription>
+                      </Alert>
+                    </div>
+                  )}
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="examples">
+              <div className="space-y-4">
+                <div className="flex gap-2">
+                  {Object.keys(examplePrompts).map((category) => (
+                    <Button
+                      key={category}
+                      variant={selectedCategory === category ? "default" : "outline"}
+                      onClick={() => setSelectedCategory(category)}
+                    >
+                      {category.charAt(0).toUpperCase() + category.slice(1)}
+                    </Button>
+                  ))}
+                </div>
+                <Alert>
+                  <AlertDescription className="whitespace-pre-wrap">
+                    {examplePrompts[selectedCategory]}
+                  </AlertDescription>
+                </Alert>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="rules">
+              <div className="space-y-4">
+                <Alert>
+                  <AlertDescription>
+                    <h4 className="font-medium mb-2">Best Practices:</h4>
+                    <ul className="list-disc ml-6 space-y-1">
+                      <li>Start with a clear instruction verb (explain, analyze, describe)</li>
+                      <li>Specify output format and structure</li>
+                      <li>Include examples or references when relevant</li>
+                      <li>Request step-by-step reasoning for complex tasks</li>
+                      <li>Set clear constraints and requirements</li>
+                      <li>Break complex prompts into smaller parts</li>
+                      <li>Use specific quantities and metrics</li>
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+                
+                <Alert variant="destructive">
+                  <AlertDescription>
+                    <h4 className="font-medium mb-2">Common Pitfalls:</h4>
+                    <ul className="list-disc ml-6 space-y-1">
+                      <li>Excessive length (over 800 characters)</li>
+                      <li>Unnecessary politeness</li>
+                      <li>Vague or subjective qualifiers</li>
+                      <li>Multiple questions in one prompt</li>
+                      <li>Inconsistent formatting requirements</li>
+                      <li>Missing context or constraints</li>
+                      <li>Sensitive or inappropriate content</li>
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+export default PromptEngineeringAssistant;
