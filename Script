@@ -367,7 +367,7 @@ const PromptEngineeringAssistant = () => {
                     <ul className="list-disc ml-6 space-y-1">
                       <li>Excessive length (over 800 characters)</li>
                       <li>Unnecessary politeness</li>
-                      <li>Vague or subjective qualifiers</li>
+                      <li>Vague_or subjective_qualifiers</li>
                       <li>Multiple questions in one prompt</li>
                       <li>Inconsistent formatting requirements</li>
                       <li>Missing context or constraints</li>
